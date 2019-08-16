@@ -1,0 +1,158 @@
+---
+title: "PracticalMachineLearning"
+author: "Laica Noguera"
+date: "August 16, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Practical Machine Learning Course Project
+
+##The Dataset 
+###Library
+```{r}
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(corrplot)
+library(gbm)
+library(caret)
+library(randomForest)
+```
+
+
+## Getting, Cleaning and Exploring the dataset
+As shown below there are 19622 observations and 160 variables in the Training dataset.
+```{r}
+train_data <- read.csv('./pml-training.csv', header=T)
+valid_data <- read.csv('./pml-testing.csv', header=T)
+dim(train_data)
+```
+
+###Cleaning
+We remove the variables that contains missing values.
+```{r}
+trainData<- train_data[, colSums(is.na(train_data)) == 0]
+validData <- valid_data[, colSums(is.na(valid_data)) == 0]
+```
+Here are the dimensions of the reduced dataset. 
+```{r}
+dim(trainData)
+dim(validData)
+```
+
+We'll remove the first 7 variables because these are just variables that do not have a relevant prediction on our model. 
+```{r}
+trainData <- trainData[, -c(1:7)]
+validData <- validData[, -c(1:7)]
+```
+##Preparing the dataset
+We'll start with the train-test split. We'll use 80-20 split. 
+```{r}
+set.seed(1234) 
+inTrain <- createDataPartition(trainData$classe, p = 0.8, list = FALSE)
+trainData <- trainData[inTrain, ]
+testData <- trainData[-inTrain, ]
+dim(trainData)
+dim(testData)
+```
+We'll also remove variables that are near-zero-variance
+```{r}
+NZV <- nearZeroVar(trainData)
+trainData <- trainData[, -NZV]
+testData  <- testData[, -NZV]
+dim(trainData)
+dim(testData)
+```
+
+We are now down to 53 variables, we'll proceed to run a correlation plot to see the relationship between these variables using corrplot. 
+```{r}
+cormat <- cor(trainData[, -53])
+corrplot(cormat, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+The correlated predictors (variables ) are those with a dark color intersection.
+
+## Reduce Variables using Correlation Matrix
+We'll use the findCorrelation function to search for highly correlated attributes with a cut off equal to 0.75
+```{r}
+highlyCorrelated = findCorrelation(cormat, cutoff=0.75)
+names(trainData)[highlyCorrelated]
+```
+
+##Modeling
+We'll use 3 algorithms to predict the outcome and compare the results. 
+
+1. Classification trees
+2. Random forests
+3. Generalized Boosted Model
+
+## Classification Trees
+```{r}
+set.seed(12345)
+decisionTreeMod1 <- rpart(classe ~ ., data=trainData, method="class")
+fancyRpartPlot(decisionTreeMod1)
+```
+###Test Model
+We then validate the model on the testData to find out how well it performs by looking at the accuracy variable.
+```{r}
+predictTreeMod1 <- predict(decisionTreeMod1, testData, type = "class")
+cmtree <- confusionMatrix(predictTreeMod1, testData$classe)
+cmtree
+```
+We see that the accuracy rate of the model is low: 0.6967.
+```{r}
+cmtree$overall['Accuracy']
+```
+
+##Random Forest
+```{r}
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modRF1 <- train(classe ~ ., data=trainData, method="rf", trControl=controlRF)
+modRF1$finalModel
+```
+###Test Model
+```{r}
+predictRF1 <- predict(modRF1, newdata=testData)
+cmrf <- confusionMatrix(predictRF1, testData$classe)
+cmrf
+```
+
+```{r}
+cmrf$overall['Accuracy']
+```
+The accuracy rate using the random forest is very high: 1.00 but it might be due to overfitting.
+```{r}
+plot(modRF1)
+```
+##Generalized Boosting Model
+
+```{r}
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modGBM  <- train(classe ~ ., data=trainData, method = "gbm", trControl = controlGBM, verbose = FALSE)
+modGBM$finalModel
+```
+
+###Model Summary
+```{r}
+print(modGBM)
+```
+
+## Test Model
+```{r}
+predictGBM <- predict(modGBM, newdata=testData)
+cmGBM <- confusionMatrix(predictGBM, testData$classe)
+cmGBM
+```
+The accuracy rate using the random forest is very high: Accuracy : 0.9736. 
+
+##Results
+By comparing the accuracy rate values of the three models,the ‘Random Forest’ model is the winner. We'll use it on the validation dataset.
+```{r}
+Results <- predict(modRF1, newdata=validData)
+Results
+```
